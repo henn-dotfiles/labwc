@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="henn_toplevel_workspace_unstable_v1">
+  <copyright>
+    SPDX-License-Identifier: GPL-2.0-only
+  </copyright>
+
+  <description summary="move toplevels between workspaces">
+    Lets a panel move a toplevel to a workspace, for example when an
+    app icon or the window itself is dropped on a workspace button.
+    Toplevels are wlr-foreign-toplevel handles of the same client;
+    workspaces are named as in ext-workspace-v1.
+  </description>
+
+  <interface name="zhenn_toplevel_workspace_manager_v1" version="1">
+    <request name="destroy" type="destructor"/>
+
+    <request name="move_to_workspace">
+      <description summary="move a toplevel to a workspace">
+        Move the toplevel to the workspace with the given name, without
+        switching to it. If the toplevel was just dropped (see
+        toplevel_dropped), it also goes back to its geometry from before
+        that move. Unknown toplevels or workspaces are ignored.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="workspace" type="string"/>
+    </request>
+
+    <event name="toplevel_dropped">
+      <description summary="a window move ended over a layer surface">
+        Sent when an interactive move of the toplevel ends with the
+        cursor over a layer-shell surface such as a panel. x and y are
+        the cursor position in layout coordinates. Only sent if the
+        client has a handle for the toplevel.
+      </description>
+      <arg name="toplevel" type="object" interface="zwlr_foreign_toplevel_handle_v1"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+    </event>
+  </interface>
+</protocol>

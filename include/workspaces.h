@@ -47,6 +47,9 @@ void workspaces_reconfigure(void);
 /* True if the workspace is shown (on its output, in per-output mode) */
 bool workspaces_is_visible(struct workspace *workspace);
 
+/* The workspace called exactly @name, or NULL */
+struct workspace *workspaces_find_exact(const char *name);
+
 /* Per-output mode hooks; all of them are no-ops otherwise */
 void workspaces_update_outputs(void);
 void workspaces_update_views(void);

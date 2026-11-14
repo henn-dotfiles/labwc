@@ -203,6 +203,7 @@ wlr_foreign_toplevel_init(struct wlr_foreign_toplevel *wlr_toplevel,
 			view->title);
 		return;
 	}
+	wlr_toplevel->handle->data = view;
 
 	/* These states may be set before the initial map */
 	handle_new_app_id(&wlr_toplevel->on_view.new_app_id, NULL);

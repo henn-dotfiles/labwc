@@ -74,6 +74,7 @@
 #include "session-lock.h"
 #include "ssd.h"
 #include "theme.h"
+#include "toplevel-workspace.h"
 #include "view.h"
 #include "workspaces.h"
 #include "xwayland.h"
@@ -791,6 +792,7 @@ server_init(void)
 
 	server.foreign_toplevel_manager =
 		wlr_foreign_toplevel_manager_v1_create(server.wl_display);
+	toplevel_workspace_init();
 
 	server.foreign_toplevel_list =
 		wlr_ext_foreign_toplevel_list_v1_create(

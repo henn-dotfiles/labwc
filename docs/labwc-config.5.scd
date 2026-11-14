@@ -623,6 +623,13 @@ extending outward from the snapped edge.
 	removed. These changes are not saved: a reconfigure or restart goes
 	back to the configured workspaces.
 
+	Panels can also move windows to a workspace with the private
+	zhenn_toplevel_workspace_manager_v1 protocol, for dropping app icons
+	or windows on workspace buttons. When a window move ends over a
+	layer-shell surface, its clients are told where; if one moves the
+	window to a workspace, it also goes back to its geometry from
+	before the move.
+
 *<desktops><initial>*
 	Define the initial starting workspace. This must match one of the names
 	defined in <names> or must be an index equal to or lower than <number>.
