@@ -8,6 +8,7 @@
 #include "output.h"
 #include "regions.h"
 #include "resize-indicator.h"
+#include "toplevel-workspace.h"
 #include "view.h"
 #include "window-rules.h"
 
@@ -326,6 +327,9 @@ interactive_finish(struct view *view)
 	}
 
 	if (server.input_mode == LAB_INPUT_STATE_MOVE) {
+		/* A panel may move the view to a workspace it was dropped on */
+		toplevel_workspace_notify_move_end(view,
+			server.seat.cursor->x, server.seat.cursor->y);
 		if (!snap_to_region(view)) {
 			snap_to_edge(view);
 		}

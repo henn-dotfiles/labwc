@@ -1083,6 +1083,12 @@ workspaces_reconfigure(void)
 	}
 }
 
+struct workspace *
+workspaces_find_exact(const char *name)
+{
+	return find_by_exact_name(name);
+}
+
 bool
 workspaces_is_visible(struct workspace *workspace)
 {
