@@ -614,6 +614,15 @@ extending outward from the snapped edge.
 	is 1. The number attribute is optional. If the number attribute is
 	specified, names.name is not required.
 
+	Clients of the ext-workspace-v1 protocol, such as panels, can add and
+	remove workspaces. An added workspace is named like the numbered ones
+	("<prefix> N" with the lowest free N) and is switched to. The windows
+	of a removed workspace move to the workspace shown in its place; when
+	the removed workspace is shown, its neighbour is switched to first.
+	The last workspace (of an output, with perOutput="yes") cannot be
+	removed. These changes are not saved: a reconfigure or restart goes
+	back to the configured workspaces.
+
 *<desktops><initial>*
 	Define the initial starting workspace. This must match one of the names
 	defined in <names> or must be an index equal to or lower than <number>.
