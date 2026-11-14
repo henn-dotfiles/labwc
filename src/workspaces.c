@@ -13,11 +13,13 @@
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include "buffer.h"
+#include "common/buf.h"
 #include "common/font.h"
 #include "common/graphic-helpers.h"
 #include "common/list.h"
 #include "common/mem.h"
 #include "common/scene-helpers.h"
+#include "common/string-helpers.h"
 #include "config/rcxml.h"
 #include "input/keyboard.h"
 #include "labwc.h"
@@ -61,6 +63,9 @@ parse_workspace_index(const char *name)
 	}
 	return index;
 }
+
+/* Clients may add workspaces to any group */
+#define GROUP_CAPS EXT_WORKSPACE_GROUP_HANDLE_V1_GROUP_CAPABILITIES_CREATE_WORKSPACE
 
 static bool
 per_output(void)
@@ -245,6 +250,11 @@ workspace_find_by_name(const char *name)
 	return NULL;
 }
 
+static void create_workspace(const char *name,
+	struct wlr_ext_workspace_group_handle_v1 *group);
+static void remove_workspace(struct workspace *workspace);
+static void destroy_workspace(struct workspace *workspace);
+
 static void
 handle_ext_workspace_commit(struct wl_listener *listener, void *data)
 {
@@ -276,6 +286,15 @@ handle_ext_workspace_commit(struct wl_listener *listener, void *data)
 				workspaces_switch_to(workspace,
 					/* update_focus */ true);
 			}
+		} else if (req->type
+				== WLR_EXT_WORKSPACE_V1_REQUEST_CREATE_WORKSPACE) {
+			create_workspace(req->create_workspace.name,
+				req->create_workspace.group);
+		} else if (req->type == WLR_EXT_WORKSPACE_V1_REQUEST_REMOVE) {
+			if (!req->remove.workspace) {
+				continue;
+			}
+			remove_workspace(req->remove.workspace->data);
 		}
 	}
 }
@@ -296,7 +315,8 @@ add_workspace(const char *name)
 	wl_list_append(&server.workspaces.all, &workspace->link);
 	wlr_scene_node_set_enabled(&workspace->tree->node, false);
 
-	uint32_t caps = EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE;
+	uint32_t caps = EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ACTIVATE
+		| EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_REMOVE;
 	if (per_output()) {
 		caps |= EXT_WORKSPACE_HANDLE_V1_WORKSPACE_CAPABILITIES_ASSIGN;
 	}
@@ -660,6 +680,127 @@ switch_to_per_output(struct workspace *target, bool update_focus)
 	show_desktop_reset();
 }
 
+/*
+ * Workspaces added or removed by ext-workspace clients. They are not
+ * saved: a reconfigure or restart goes back to the <desktops> config.
+ */
+static struct workspace *
+find_by_exact_name(const char *name)
+{
+	struct workspace *workspace;
+	wl_list_for_each(workspace, &server.workspaces.all, link) {
+		if (!strcmp(workspace->name, name)) {
+			return workspace;
+		}
+	}
+	return NULL;
+}
+
+static void
+create_workspace(const char *name,
+		struct wlr_ext_workspace_group_handle_v1 *group)
+{
+	/*
+	 * Use the client's name if it is free, else name it like the
+	 * configured workspaces ("<prefix> N") with the lowest free N
+	 */
+	struct buf b = BUF_INIT;
+	if (!name || !*name || find_by_exact_name(name)) {
+		const char *prefix = rc.workspace_config.prefix;
+		for (int n = 1; ; n++) {
+			buf_clear(&b);
+			if (!string_null_or_empty(prefix)) {
+				buf_add_fmt(&b, "%s ", prefix);
+			}
+			buf_add_fmt(&b, "%d", n);
+			if (!find_by_exact_name(b.data)) {
+				break;
+			}
+		}
+		name = b.data;
+	}
+	add_workspace(name);
+	buf_reset(&b);
+	struct workspace *workspace =
+		wl_container_of(server.workspaces.all.prev, workspace, link);
+
+	if (per_output()) {
+		struct output *output = group ? group->data : NULL;
+		if (!output_is_usable(output)) {
+			output = server.workspaces.current
+				? server.workspaces.current->output : NULL;
+		}
+		if (!output_is_usable(output)) {
+			output = fallback_output();
+		}
+		if (!output) {
+			/* Placed once an output appears */
+			wlr_log(WLR_INFO, "added workspace %s", workspace->name);
+			return;
+		}
+		workspace_set_output(workspace, output);
+	}
+	wlr_log(WLR_INFO, "added workspace %s", workspace->name);
+	workspaces_switch_to(workspace, /* update_focus */ true);
+}
+
+/*
+ * Remove @workspace and move its views to the workspace shown in its
+ * place. If it is shown itself, switch to its neighbour first. The last
+ * workspace (of an output, in per-output mode) is never removed.
+ */
+static void
+remove_workspace(struct workspace *workspace)
+{
+	struct workspace *neighbour =
+		get_prev(workspace, &server.workspaces.all, /* wrap */ false);
+	if (!neighbour) {
+		neighbour = get_next(workspace,
+			&server.workspaces.all, /* wrap */ false);
+	}
+	if (!neighbour) {
+		wlr_log(WLR_INFO, "not removing last workspace %s",
+			workspace->name);
+		return;
+	}
+
+	struct workspace *target = neighbour;
+	if (workspaces_is_visible(workspace)) {
+		workspaces_switch_to(neighbour, /* update_focus */ true);
+	} else if (!per_output()) {
+		target = server.workspaces.current;
+	} else if (workspace->output && workspace->output->workspace) {
+		target = workspace->output->workspace;
+	}
+
+	wlr_log(WLR_INFO, "removing workspace %s, views go to %s",
+		workspace->name, target->name);
+	overlay_finish(&server.seat);
+
+	struct view *view;
+	wl_list_for_each(view, &server.views, link) {
+		if (view->workspace == workspace) {
+			view_move_to_workspace(view, target);
+		}
+	}
+	if (server.workspaces.current == workspace) {
+		server.workspaces.current = target;
+	}
+	if (server.workspaces.last == workspace) {
+		server.workspaces.last = target;
+	}
+	struct output *output = workspace->output;
+	if (output && output->workspace == workspace) {
+		output->workspace = target;
+	}
+
+	destroy_workspace(workspace);
+	refresh_visibility();
+	desktop_update_top_layer_visibility();
+	desktop_focus_topmost_view();
+	cursor_update_focus();
+}
+
 /* Public API */
 void
 workspaces_init(void)
@@ -674,7 +815,7 @@ workspaces_init(void)
 	server.workspaces.per_output = rc.workspace_config.per_output;
 	if (!server.workspaces.per_output) {
 		server.workspaces.ext_group = wlr_ext_workspace_group_handle_v1_create(
-			server.workspaces.ext_manager, /*caps*/ 0);
+			server.workspaces.ext_manager, GROUP_CAPS);
 	}
 
 	server.workspaces.on_ext_manager.commit.notify = handle_ext_workspace_commit;
@@ -971,7 +1112,7 @@ workspaces_update_outputs(void)
 	wl_list_for_each(output, &server.outputs, link) {
 		if (output_is_usable(output) && !output->ext_group) {
 			output->ext_group = wlr_ext_workspace_group_handle_v1_create(
-				server.workspaces.ext_manager, /*caps*/ 0);
+				server.workspaces.ext_manager, GROUP_CAPS);
 			output->ext_group->data = output;
 			wlr_ext_workspace_group_handle_v1_output_enter(
 				output->ext_group, output->wlr_output);
